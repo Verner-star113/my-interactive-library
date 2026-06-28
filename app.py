@@ -465,6 +465,36 @@ chosen_page = st.sidebar.radio(
 # Синхронизируем
 st.session_state["current_page_name"] = st.session_state["sidebar_navigation"]
 
+# --- СИСТЕМА ЗАЩИТЫ И АВТОРИЗАЦИИ ---
+def check_password():
+    """Возвращает True, если пользователь ввел правильный пароль."""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    # Если пароль уже был успешно введен ранее в этой сессии, пропускаем дальше
+    if st.session_state["password_correct"]:
+        return True
+
+    # Отображаем форму ввода пароля, если пользователь еще не авторизован
+    st.subheader("🔒 Личный кабинет заблокирован")
+    user_password = st.text_input("Введите ваш личный пароль для доступа к библиотеке:", type="password",
+                                  key="auth_pwd_input")
+
+    if st.button("🔑 Войти в библиотеку", use_container_width=True):
+        # ЗАМЕНИТЕ 'секрет123' НА ЛЮБОЙ СВОЙ ПАРОЛЬ (обязательно в кавычках):
+        if user_password == "LexaDEVLibrary133720":
+            st.session_state["password_correct"] = True
+            st.rerun()
+        else:
+            st.error("❌ Неверный пароль! Доступ к книгам запрещен.")
+
+    return False
+
+
+# Запускаем проверку. Если пароль не введен, принудительно останавливаем выполнение кода дальше!
+if not check_password():
+    st.stop()
+
 current_tab = None
 
 if "app_theme" not in st.session_state:
