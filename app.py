@@ -63,7 +63,8 @@ menu_options = [
     "⚙️ Настройки и Бонусы",
     "✍️ Любимые цитаты",
     "📖 Читальный зал",
-    "🎯 Рекомендации книг",  # НОВЫЙ РАЗДЕЛ
+    "🎯 Рекомендации книг",
+    "🛒 Онлайн-заказ книг",
 ]
 
 
@@ -79,34 +80,67 @@ chosen_page = st.sidebar.radio(
 # Синхронизируем
 st.session_state["current_page_name"] = st.session_state["sidebar_navigation"]
 
-# --- СИСТЕМА ЗАЩИТЫ И АВТОРИЗАЦИИ ---
-def check_password():
-    """Возвращает True, если пользователь ввел правильный пароль."""
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
 
-    # Если пароль уже был успешно введен ранее в этой сессии, пропускаем дальше
-    if st.session_state["password_correct"]:
+# --- СИСТЕМА АВТОРИЗАЦИИ И РЕГИСТРАЦИИ ---
+def check_user_auth():
+    """Проверяет авторизацию пользователя и выводит окно Входа/Регистрации."""
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = None
+    if "username" not in st.session_state:
+        st.session_state["username"] = None
+
+    # Если пользователь уже успешно вошел, пропускаем его к коду дальше
+    if st.session_state["user_id"] is not None:
         return True
 
-    # Отображаем форму ввода пароля, если пользователь еще не авторизован
-    st.subheader("🔒 Личный кабинет заблокирован")
-    user_password = st.text_input("Введите ваш личный пароль для доступа к библиотеке:", type="password",
-                                  key="auth_pwd_input")
+    st.subheader("🔐 Доступ к системе управления библиотекой")
 
-    if st.button("🔑 Войти в библиотеку", use_container_width=True):
-        if user_password == "LexaDEVLibrary133720":
-            st.session_state["password_correct"] = True
-            st.rerun()
-        else:
-            st.error("❌ Неверный пароль! Доступ к книгам запрещен.")
+    # Переключатель между Входом и Регистрацией
+    auth_mode = st.tabs(["🔑 Войти в аккаунт", "📝 Зарегистрироваться"])
+
+    with auth_mode[0]:
+        with st.form("login_form"):
+            l_user = st.text_input("Имя пользователя (Логин):", key="l_user_in")
+            l_pwd = st.text_input("Пароль:", type="password", key="l_pwd_in")
+            btn_login = st.form_submit_button("Войти", use_container_width=True)
+            if btn_login:
+                user_data = login_user(l_user, l_pwd)
+                if user_data:
+                    # Безопасное извлечение ID: проверяем, кортеж это или чистое число
+                    if isinstance(user_data, tuple):
+                        clean_uid = user_data[0]
+                    else:
+                        clean_uid = user_data
+
+                    st.session_state["user_id"] = int(clean_uid)  # Сохраняем ID пользователя
+                    st.session_state["username"] = l_user
+                    st.success(f"🎉 Добро пожаловать, {l_user}!")
+                    st.rerun()
+                else:
+                    st.error("❌ Неверный логин или пароль!")
+
+    with auth_mode[1]:
+        with st.form("reg_form"):
+            r_user = st.text_input("Придумайте логин:", key="r_user_in")
+            r_pwd = st.text_input("Придумайте пароль:", type="password", key="r_pwd_in")
+            btn_reg = st.form_submit_button("Создать аккаунт", use_container_width=True)
+            if btn_reg:
+                if r_user.strip() == "" or r_pwd.strip() == "":
+                    st.error("Поля не могут быть пустыми!")
+                else:
+                    success = register_user(r_user, r_pwd)
+                    if success:
+                        st.success("✨ Аккаунт успешно создан! Теперь вы можете войти во вкладке слева.")
+                    else:
+                        st.error("⚠️ Этот логин уже занят, придумайте другой.")
 
     return False
 
 
-# Запускаем проверку. Если пароль не введен, принудительно останавливаем выполнение кода дальше!
-if not check_password():
+# Если пользователь не вошел, принудительно останавливаем приложение на экране авторизации
+if not check_user_auth():
     st.stop()
+
 
 current_tab = None
 
@@ -150,7 +184,8 @@ class TabDummy:
         pass
 
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = (
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = (
+    TabDummy(),
     TabDummy(),
     TabDummy(),
     TabDummy(),
@@ -174,57 +209,57 @@ elif st.session_state["current_page_name"] == "📖 Читальный зал":
     current_tab = tab6
 elif st.session_state["current_page_name"] == "🎯 Рекомендации книг":
     current_tab = tab7
+elif st.session_state["current_page_name"] == "🛒 Онлайн-заказ книг":
+    current_tab = tab8
 
 
 # --- ВКЛАДКА 1: ПРОСМОТР И УПРАВЛЕНИЕ ---
 if current_tab == tab1:
-    books = get_books()
-    if not books:
-        st.info(
-            "Ваша библиотека пока пуста. Перейдите во вкладку 'Добавить книгу'."
-        )
+    # 1. Получаем книги строго авторизованного пользователя из database.py
+    user_books = get_user_books(st.session_state["user_id"])
+
+    if not user_books:
+        st.info("💡 Ваша личная библиотека пока пуста. Добавьте первую книгу во 2-й вкладке!")
     else:
         st.subheader("Список ваших книг")
+
+        # Панель поиска и фильтрации (Название, Автор, Жанр + Статус)
         filter_col1, filter_col2 = st.columns(2)
         with filter_col1:
             search_query = st.text_input(
                 "🔍 Поиск книги",
-                placeholder="Введите название или автора для поиска...",
-                key="search_input",
+                placeholder="Введите название, автора или жанр...",
+                key="search_input_tz",
             )
         with filter_col2:
             status_filter = st.selectbox(
                 "📌 Фильтр по статусу",
                 ["Все статусы", "Хочу прочитать", "Читаю", "Прочитано"],
-                key="status_filter_select",
+                key="status_filter_select_tz",
             )
 
-        filtered_books = books
-        if search_query:
-            filtered_books = [
-                b
-                for b in filtered_books
-                if search_query.lower() in b[1].lower()
-                or search_query.lower() in b[2].lower()
-            ]
-        if status_filter != "Все статусы":
-            filtered_books = [
-                b for b in filtered_books if b[3] == status_filter
-            ]
+        # Живая фильтрация списка книг
+        filtered_books = []
+        for book in user_books:
+            b_id, b_title, b_author, b_status, b_rating, b_date, b_genre = book
 
+            # Проверяем совпадение с поисковым запросом
+            match_search = (
+                    search_query.lower() in b_title.lower() or
+                    search_query.lower() in b_author.lower() or
+                    search_query.lower() in b_genre.lower()
+            )
+            # Проверяем совпадение со статусом
+            match_status = (status_filter == "Все статусы" or b_status == status_filter)
+
+            if (search_query == "" or match_search) and match_status:
+                filtered_books.append(book)
+
+        # Кнопка Excel-экспорта (оставляем её для красоты)
         if filtered_books:
             df_export = pd.DataFrame(
-                [
-                    (b[1], b[2], b[3], b[4], b[5])
-                    for b in filtered_books
-                ],
-                columns=[
-                    "Название",
-                    "Автор",
-                    "Статус",
-                    "Рейтинг",
-                    "Дата добавления",
-                ],
+                [(b[1], b[2], b[6], b[3], b[4], b[5]) for b in filtered_books],
+                columns=["Название", "Автор", "Жанр", "Статус", "Рейтинг", "Дата добавления"]
             )
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -236,21 +271,22 @@ if current_tab == tab1:
                 file_name="my_library.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                key="dl_btn",
+                key="dl_btn_tz",
             )
 
         st.write("")
         if not filtered_books:
             st.warning("Книги с такими параметрами не найдены.")
 
+        # Отрисовка карточек книг
         for book in filtered_books:
-            b_id, b_title, b_author, b_status, b_rating, b_date = book
+            b_id, b_title, b_author, b_status, b_rating, b_date, b_genre = book
             stars = "⭐" * b_rating if b_rating > 0 else "Без оценки"
-            with st.expander(f"📖 {b_title} — {b_author} ({stars})"):
+
+            # Красивый заголовок карточки с отображением Жанра
+            with st.expander(f"📖 {b_title} — {b_author} | 🎭 Жанр: {b_genre} ({stars})"):
                 st.write(f"**Текущий статус:** {b_status}")
-                st.write(
-                    f"📅 **Дата добавления:** {b_date if b_date else 'Не указана'}"
-                )
+                st.write(f"📅 **Дата добавления:** {b_date if b_date else 'Не указана'}")
                 col1, col2 = st.columns(2)
                 with col1:
                     statuses = ["Хочу прочитать", "Читаю", "Прочитано"]
@@ -354,10 +390,17 @@ if current_tab == tab1:
 
 # --- ВКЛАДКА 2: ДОБАВЛЕНИЕ КНИГИ ---
 if current_tab == tab2:
-    st.subheader("➕ Добавить новую книгу в библиотеку")
-    with st.form("add_book_form_v3", clear_on_submit=True):
+    st.subheader("➕ Добавить новую книгу в личную библиотеку")
+
+    with st.form("add_book_form_v4", clear_on_submit=True):
         title = st.text_input("Название книги:")
         author = st.text_input("Автор:")
+
+        # Выбор или ввод жанра по ТЗ
+        genre = st.selectbox(
+            "Жанр книги:",
+            ["Классика", "Фантастика", "Детектив", "Роман", "Психология", "История", "Бизнес"]
+        )
 
         status = st.selectbox(
             "Статус:", ["Хочу прочитать", "Прочитано"]
@@ -368,9 +411,9 @@ if current_tab == tab2:
             if title.strip() == "" or author.strip() == "":
                 st.error("Пожалуйста, заполните название и автора!")
             else:
-                # Передаем жесткий ноль (0) вместо переменной rating
-                add_book(title, author, status, 0)
-                st.success(f"Книга «{title}» успешно добавлена!")
+                # Сохраняем книгу с привязкой к текущему пользователю и жанру
+                add_book_with_genre(st.session_state["user_id"], title, author, genre, status, 0)
+                st.success(f"🎉 Книга «{title}» успешно добавлена в вашу библиотеку!")
                 st.rerun()
 
 # --- ВКЛАДКА 3: СТАТИСТИКА ---
@@ -1100,3 +1143,41 @@ if current_tab == tab7:
                         on_click=cb_import_recommended_book,
                         args=(r_title, r_author),
                     )
+
+# --- ВКЛАДКА 8: ОНЛАЙН-ЗАКАЗ КНИГ ---
+if current_tab == tab8:
+    st.subheader("🛒 Онлайн-заказ бумажных и электронных книг")
+    st.write("Не нашли нужную книгу в каталоге рекомендаций? Оформите онлайн-заказ, и мы добавим её для вас!")
+
+    # Форма оформления заказа
+    with st.form("online_order_form", clear_on_submit=True):
+        order_title = st.text_input("Какую книгу вы хотите заказать? (Название):")
+        order_author = st.text_input("Укажите автора книги:")
+
+        btn_order = st.form_submit_button("🚀 Оформить онлайн-заказ")
+        if btn_order:
+            if order_title.strip() == "" or order_author.strip() == "":
+                st.error("Пожалуйста, укажите название и автора книги для заказа!")
+            else:
+                create_order(st.session_state["user_id"], order_title, order_author)
+                st.success(f"✨ Заказ на книгу «{order_title}» успешно оформлен онлайн!")
+                st.rerun()
+
+    st.divider()
+    st.subheader("📦 История ваших онлайн-заказов")
+
+    # Извлекаем заказы текущего пользователя из базы
+    user_orders = get_user_orders(st.session_state["user_id"])
+
+    if not user_orders:
+        st.info("Вы ещё не оформляли онлайн-заказы.")
+    else:
+        for o_title, o_author, o_date, o_status in user_orders:
+            with st.container(border=True):
+                col_o1, col_o2 = st.columns([3, 1])
+                with col_o1:
+                    st.markdown(f"📖 **«{o_title}»** — *{o_author}*")
+                    st.caption(f"📅 Дата заказа: {o_date}")
+                with col_o2:
+                    # Красивый статус заказа
+                    st.warning(f"⏳ {o_status}")

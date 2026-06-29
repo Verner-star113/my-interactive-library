@@ -4,15 +4,26 @@ from datetime import datetime
 
 
 def init_db():
-    conn = sqlite3.connect("library.db")
+    conn = sqlite3.connect("library.db", timeout=10)
     cursor = conn.cursor()
-    # Таблица книг со ВСЕМИ нужными столбцами
-    cursor.execute(
-        """
+
+    # 1. Таблица пользователей (Добавили!)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+    """)
+
+    # 2. Таблица книг со столбцом genre (Жанр)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS books (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER DEFAULT 1, -- Привязка к пользователю
             title TEXT NOT NULL,
             author TEXT NOT NULL,
+            genre TEXT DEFAULT 'Классика', -- Добавили Жанр!
             status TEXT NOT NULL,
             rating INTEGER DEFAULT 0,
             added_date TEXT,
@@ -21,11 +32,22 @@ def init_db():
             is_series INTEGER DEFAULT 0,
             book_notes TEXT
         )
-    """
-    )
-    # Таблица для цитат
-    cursor.execute(
-        """
+    """)
+
+    # 3. Таблица для онлайн-заказов книг (Добавили!)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            book_title TEXT NOT NULL,
+            book_author TEXT NOT NULL,
+            order_date TEXT NOT NULL,
+            status TEXT DEFAULT 'В обработке'
+        )
+    """)
+
+    # Оставшиеся таблицы (quotes, reading_sessions, book_volumes)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS quotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             book_id INTEGER NOT NULL,
@@ -34,11 +56,8 @@ def init_db():
             added_date TEXT,
             FOREIGN KEY (book_id) REFERENCES books (id) ON DELETE CASCADE
         )
-    """
-    )
-    # Таблица для сессий таймера
-    cursor.execute(
-        """
+    """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS reading_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             book_id INTEGER NOT NULL,
@@ -46,11 +65,8 @@ def init_db():
             session_date TEXT,
             FOREIGN KEY (book_id) REFERENCES books (id) ON DELETE CASCADE
         )
-    """
-    )
-    # 4. НОВАЯ: Таблица для томов/частей книги
-    cursor.execute(
-        """
+    """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS book_volumes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             book_id INTEGER NOT NULL,
@@ -59,8 +75,7 @@ def init_db():
             current_position INTEGER DEFAULT 0,
             FOREIGN KEY (book_id) REFERENCES books (id) ON DELETE CASCADE
         )
-    """
-    )
+    """)
     conn.commit()
     conn.close()
 
@@ -70,7 +85,7 @@ def add_book(title, author, status, rating):
     cursor = conn.cursor()
     current_date = datetime.now().strftime("%Y-%m-%d")
     cursor.execute(
-        "INSERT INTO books (title, author, status, rating, added_date) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO books (user_id, title, author, status, rating, added_date) VALUES (1, ?, ?, ?, ?, ?)",
         (title, author, status, rating, current_date),
     )
     conn.commit()
@@ -388,3 +403,68 @@ def get_book_notes(book_id):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result and result[0] else ""
+
+
+# --- НОВЫЕ ФУНКЦИИ ---
+def register_user(username, password):
+    """Регистрация нового пользователя в БД"""
+    try:
+        conn = sqlite3.connect("library.db", timeout=10)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        return False # Пользователь с таким логином уже есть
+
+def login_user(username, password):
+    """Проверка логина и пароля при входе"""
+    conn = sqlite3.connect("library.db", timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cursor.fetchone()
+    conn.close()
+    return user[0] if user else None
+
+def add_book_with_genre(user_id, title, author, genre, status, rating):
+    """Добавление книги с привязкой к пользователю и жанру"""
+    conn = sqlite3.connect("library.db", timeout=10)
+    cursor = conn.cursor()
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute(
+        "INSERT INTO books (user_id, title, author, genre, status, rating, added_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (int(user_id), title, author, genre, status, int(rating), current_date),
+    )
+    conn.commit()
+    conn.close()
+
+def get_user_books(user_id):
+    """Получение книг конкретного авторизованного пользователя"""
+    conn = sqlite3.connect("library.db", timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, author, status, rating, added_date, genre FROM books WHERE user_id = ?", (int(user_id),))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def create_order(user_id, title, author):
+    """Оформление онлайн-заказа книги"""
+    conn = sqlite3.connect("library.db", timeout=10)
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute(
+        "INSERT INTO orders (user_id, book_title, book_author, order_date) VALUES (?, ?, ?, ?)",
+        (int(user_id), title, author, now)
+    )
+    conn.commit()
+    conn.close()
+
+def get_user_orders(user_id):
+    """Получение списка онлайн-заказов пользователя"""
+    conn = sqlite3.connect("library.db", timeout=10)
+    cursor = conn.cursor()
+    cursor.execute("SELECT book_title, book_author, order_date, status FROM orders WHERE user_id = ?", (int(user_id),))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
